@@ -1,5 +1,9 @@
 require 'rubygems'
 
+require 'uri'
+require 'fileutils'
+require 'net/http'
+
 if ENV["ACTIVE_RECORD_VERSION"]
   gem 'activerecord', ENV["ACTIVE_RECORD_VERSION"]
 else
@@ -41,7 +45,7 @@ module Sunspot
             Thread.current[:mock_db]
           end
           
-          def save (*objects)
+          def save(*objects)
             objects.each do |obj|
               db[obj.id.to_s] = obj.dup
             end
@@ -50,21 +54,21 @@ module Sunspot
         
         attr_reader :id
         attr_accessor :value
-        def initialize (id, value=nil)
+        def initialize(id, value=nil)
           @id = id
           @value = value
         end
         
-        def == (value)
+        def ==(value)
           value.is_a?(self.class) && @id == value.id
         end
         
         class DataAccessor < Sunspot::Adapters::DataAccessor
-          def load (id)
+          def load(id)
             Searchable.db ? Searchable.db[id.to_s] : Searchable.new(id)
           end
           
-          def load_all (ids)
+          def load_all(ids)
             ids.collect{|id| load(id)}.compact
           end
         end
@@ -77,10 +81,22 @@ module Sunspot
         
         class Subclass < Searchable
         end
+        
+        # This class mocks out the behavior of ActiveRecord DataAccessor where an include can be attached for eager loading.
+        class IncludeClass < Searchable
+          def self.sunspot_options
+            {:include => :test}
+          end
+          
+          class IncludeDataAccessor < DataAccessor
+            attr_accessor :include
+          end
+        end
       end
 
       Sunspot::Adapters::InstanceAdapter.register(Searchable::InstanceAdapter, Searchable)
       Sunspot::Adapters::DataAccessor.register(Searchable::DataAccessor, Searchable)
+      Sunspot::Adapters::DataAccessor.register(Searchable::IncludeClass::IncludeDataAccessor, Searchable::IncludeClass)
       Sunspot.setup(Searchable) do
         string :value
       end
@@ -92,7 +108,7 @@ module Sunspot
         
         attr_reader :record_class_name, :record_id, :error, :attempts
         
-        def initialize (options = {})
+        def initialize(options = {})
           if options[:record]
             @record_class_name = options[:record].class.name
             @record_id = options[:record].id
@@ -109,6 +125,10 @@ module Sunspot
         
         def id
           object_id
+        end
+        
+        def set_error!(message, retry_interval = nil)
+          @error = message
         end
       end
     end

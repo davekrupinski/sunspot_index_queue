@@ -9,7 +9,7 @@ module Sunspot
       # be processed.
       PASS_THROUGH_EXCEPTIONS = [SystemExit, NoMemoryError, Interrupt, SignalException, Errno::ECONNREFUSED]
       
-      def initialize (queue, entries = nil)
+      def initialize(queue, entries = nil)
         @queue = queue
         @entries = []
         @entries.concat(entries) if entries
@@ -32,6 +32,8 @@ module Sunspot
           end
           commit!
         rescue Exception => e
+          @delete_entries.clear
+          entries.each{|entry| entry.processed = false}
           if PASS_THROUGH_EXCEPTIONS.include?(e.class)
             raise e
           else
@@ -56,7 +58,7 @@ module Sunspot
       end
       
       # Clear the processed flag on all entries.
-      def clear_processed (entries)
+      def clear_processed(entries)
         entries.each{|entry| entry.processed = false}
       end
       
@@ -66,8 +68,9 @@ module Sunspot
         Entry.delete_entries(@delete_entries) unless @delete_entries.empty?
       rescue Exception => e
         clear_processed(entries)
-        @delete_entries.clear
         raise e
+      ensure
+        @delete_entries.clear
       end
       
       # Submit all entries to Solr individually and then commit.
@@ -90,7 +93,7 @@ module Sunspot
       end
       
       # Send an entry to Solr doing an update or delete as necessary.
-      def submit_entry (entry)
+      def submit_entry(entry)
         log_entry_error(entry) do
           if entry.is_delete?
             session.remove_by_id(entry.record_class_name, entry.record_id)
@@ -102,7 +105,7 @@ module Sunspot
       end
       
       # Update an entry with an error message if a block fails.
-      def log_entry_error (entry)
+      def log_entry_error(entry)
         begin
           yield
           entry.processed = true

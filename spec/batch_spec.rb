@@ -30,6 +30,21 @@ describe Sunspot::IndexQueue::Batch do
     entry_2.processed?.should == true
   end
   
+  it "should submit all entries in a batch to Solr using include options if they are supported on the model and data adapters" do
+    record = Sunspot::IndexQueue::Test::Searchable::IncludeClass.new(1)
+    entry = Sunspot::IndexQueue::Entry::MockImpl.new(:record => record, :delete => false)
+    entry.stub!(:record).and_return(record)
+    session.should_receive(:batch).and_yield
+    session.should_receive(:index).with(record)
+    session.should_receive(:commit)
+    adapter = Sunspot::Adapters::DataAccessor.create(Sunspot::IndexQueue::Test::Searchable::IncludeClass)
+    Sunspot::Adapters::DataAccessor.should_receive(:create).with(Sunspot::IndexQueue::Test::Searchable::IncludeClass).and_return(adapter)
+    Sunspot::IndexQueue::Entry.implementation.should_receive(:delete_entries).with([entry])
+    batch = Sunspot::IndexQueue::Batch.new(queue, [entry])
+    batch.submit!
+    adapter.include.should == :test
+  end
+  
   it "should submit all entries individually and commit them if the batch errors out" do
     entry_1.stub!(:record).and_return(record_1)
     session.should_receive(:batch).and_yield
@@ -43,6 +58,22 @@ describe Sunspot::IndexQueue::Batch do
     entry_2.processed?.should == true
   end
   
+  it "should only delete entries that are successfully committed" do
+    entry_1.stub!(:record).and_return(record_1)
+    def session.batch
+      yield
+      raise("solr rejects malformed batch")
+    end
+    session.should_receive(:index).with(record_1).twice
+    session.should_receive(:remove_by_id).with(entry_2.record_class_name, entry_2.record_id)
+    session.should_receive(:remove_by_id).with(entry_2.record_class_name, entry_2.record_id).and_raise("boom")
+    session.should_receive(:commit)
+    Sunspot::IndexQueue::Entry.implementation.should_receive(:delete_entries).with([entry_1])
+    subject.submit!
+    entry_1.processed?.should == true
+    entry_2.processed?.should == false
+    entry_2.error.should_not == nil
+  end
   
   it "should add error messages to each entry that errors out" do
     entry_1.stub!(:record).and_return(record_1)
